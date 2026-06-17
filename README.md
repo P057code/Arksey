@@ -1,6 +1,6 @@
 # Arksey Level Crossing Schema
 
-This repository contains a PostgreSQL schema for driving a live page that reports
+This repository contains a MySQL schema for driving a live page that reports
 whether Arksey level crossing is open or closed using OpenRailData / Network Rail
 feed data for TIPLOC `ARKSEYL`.
 
@@ -96,7 +96,7 @@ Create `.env` from `.env.example` and fill in:
 Apply the schema:
 
 ```powershell
-psql "$env:DATABASE_URL" -f schema.sql
+mysql --init-command="SET time_zone = '+00:00'" -u arksey -p arksey < schema.sql
 ```
 
 Run a one-off timetable import:
@@ -150,7 +150,7 @@ STANOX that way, set `TARGET_STANOX` manually.
 
 The live deployment needs three pieces running:
 
-- PostgreSQL for the schema and live train/crossing state.
+- MySQL for the schema and live train/crossing state.
 - The ingestor process, `pnpm start`, for STOMP feeds and daily timetable import.
 - The web process, `pnpm run web`, for the public page and `/api/status`.
 
@@ -161,7 +161,7 @@ and usernames if your host uses a different layout.
 
 ```bash
 sudo apt update
-sudo apt install -y git postgresql nginx
+sudo apt install -y git mysql-server nginx
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
 sudo corepack enable
@@ -182,26 +182,27 @@ cd /opt/arksey/app
 sudo -u arksey pnpm install --prod
 ```
 
-### 2. PostgreSQL
+### 2. MySQL
 
 Create the database and user:
 
 ```bash
-sudo -u postgres psql
+sudo mysql
 ```
 
 ```sql
-CREATE USER arksey WITH PASSWORD 'replace-with-a-strong-password';
-CREATE DATABASE arksey OWNER arksey;
-\q
+CREATE DATABASE arksey CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'arksey'@'localhost' IDENTIFIED BY 'replace-with-a-strong-password';
+GRANT ALL PRIVILEGES ON arksey.* TO 'arksey'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
 ```
 
 Apply the schema:
 
 ```bash
 cd /opt/arksey/app
-export DATABASE_URL='postgres://arksey:replace-with-a-strong-password@localhost:5432/arksey'
-psql "$DATABASE_URL" -f schema.sql
+mysql -u arksey -p arksey < schema.sql
 ```
 
 ### 3. Environment File
@@ -216,7 +217,7 @@ sudo chmod 600 /opt/arksey/app/.env
 Set these values:
 
 ```dotenv
-DATABASE_URL=postgres://arksey:replace-with-a-strong-password@localhost:5432/arksey
+DATABASE_URL=mysql://arksey:replace-with-a-strong-password@localhost:3306/arksey
 PORT=3000
 OPENRAIL_USERNAME=your-network-rail-login@example.com
 OPENRAIL_PASSWORD=your-network-rail-password
@@ -267,7 +268,7 @@ Create `/etc/systemd/system/arksey-ingest.service`:
 ```ini
 [Unit]
 Description=Arksey OpenRailData ingestor
-After=network-online.target postgresql.service
+After=network-online.target mysql.service
 Wants=network-online.target
 
 [Service]
@@ -289,7 +290,7 @@ Create `/etc/systemd/system/arksey-web.service`:
 ```ini
 [Unit]
 Description=Arksey crossing web page
-After=network-online.target postgresql.service
+After=network-online.target mysql.service
 Wants=network-online.target
 
 [Service]
@@ -357,7 +358,7 @@ sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.example
 ```
 
-Only ports `80` and `443` need to be public. Keep Postgres private to the
+Only ports `80` and `443` need to be public. Keep MySQL private to the
 server, and do not expose `PORT=3000` directly to the internet. The server also
 needs outbound access to `publicdatafeeds.networkrail.co.uk:61618` for STOMP and
 outbound HTTPS for the daily SCHEDULE download.
@@ -368,8 +369,7 @@ outbound HTTPS for the daily SCHEDULE download.
 cd /opt/arksey/app
 sudo -u arksey git pull
 sudo -u arksey pnpm install --prod
-export DATABASE_URL='postgres://arksey:replace-with-a-strong-password@localhost:5432/arksey'
-psql "$DATABASE_URL" -f schema.sql
+mysql -u arksey -p arksey < schema.sql
 sudo systemctl restart arksey-ingest arksey-web
 ```
 
@@ -378,11 +378,9 @@ Check the public page and `/api/status` after every deploy.
 Sample passage insert:
 
 ```sql
-INSERT INTO train_service (train_uid, service_date, headcode)
-VALUES ('C12345', '2026-06-17', '1A23')
-ON CONFLICT (train_uid, service_date) WHERE train_uid IS NOT NULL
-DO UPDATE SET headcode = EXCLUDED.headcode
-RETURNING id;
+INSERT INTO train_service (train_uid, schedule_id, service_date, headcode)
+VALUES ('C12345', 'manual:C12345:2026-06-17', '2026-06-17', '1A23')
+ON DUPLICATE KEY UPDATE headcode = VALUES(headcode);
 
 INSERT INTO train_passage (
   service_id,
@@ -394,15 +392,15 @@ INSERT INTO train_passage (
 VALUES (
   1,
   'ARKSEYL',
-  '2026-06-17 15:00:00 Europe/London',
-  '2026-06-17 15:02:00 Europe/London',
+  '2026-06-17 14:00:00.000',
+  '2026-06-17 14:02:00.000',
   'estimated'
 );
 ```
 
 ## Operational Notes
 
-Store times as `timestamptz`; render them as `Europe/London` on the page.
+Store times as UTC `DATETIME(3)`; render them as `Europe/London` on the page.
 
 The Train Movements feed is actual/confirming data, not enough by itself to say
 the crossing will close three minutes before the train. For the forward-looking

@@ -14,7 +14,7 @@ not be reliable or allowed as a background worker. The recommended production
 layout is:
 
 - Krystal cPanel/Apache: public webpage and API.
-- External PostgreSQL database: stores timetable, movement, and crossing state.
+- MySQL database: stores timetable, movement, and crossing state.
 - VPS/background worker: runs the STOMP ingestor and daily timetable import.
 
 References:
@@ -26,13 +26,13 @@ References:
 
 - Krystal cPanel hosting with `Setup Node.js App` available.
 - SSH access enabled for the cPanel account.
-- A PostgreSQL database reachable from both Krystal and the ingestor host.
+- A MySQL database reachable from both Krystal and the ingestor host.
 - OpenRailData / Network Rail Data Feeds credentials.
 - A separate always-on host for the ingestor, unless your hosting plan explicitly
   supports persistent background Node processes.
 
-This project uses PostgreSQL-specific SQL. A standard cPanel MySQL database will
-not work without rewriting the schema and queries.
+This project uses MySQL 8-compatible SQL. A standard cPanel MySQL database is
+the intended hosted database target.
 
 ## Recommended Architecture
 
@@ -43,30 +43,38 @@ Public visitor
 Krystal Apache / cPanel Node.js app
   |
   v
-External PostgreSQL database
+Krystal/cPanel MySQL database
   ^
   |
 VPS/background worker running OpenRailData STOMP + daily SCHEDULE import
 ```
 
 The webpage does not connect to OpenRailData directly. It only reads the latest
-state from PostgreSQL through `/api/status`.
+state from MySQL through `/api/status`.
 
-## 1. Prepare PostgreSQL
+## 1. Prepare MySQL
 
-Use an external PostgreSQL provider or a VPS-hosted PostgreSQL instance. Create a
-database and user, then apply the schema from your local machine or from SSH:
+Use cPanel **MySQL Databases** to create a database and database user. Add the
+user to the database with all privileges.
 
-```bash
-psql "postgres://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require" -f schema.sql
+Your database name and username will usually be prefixed with your cPanel
+account name, for example:
+
+```text
+cpaneluser_arksey
+cpaneluser_arkseyuser
 ```
 
-Use `sslmode=require` if your database provider requires TLS.
+Apply the schema over SSH from the project directory:
+
+```bash
+mysql -h localhost -u cpaneluser_arkseyuser -p cpaneluser_arksey < schema.sql
+```
 
 Keep the final database URL ready:
 
 ```text
-postgres://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+mysql://cpaneluser_arkseyuser:PASSWORD@localhost:3306/cpaneluser_arksey
 ```
 
 ## 2. Upload The Project To Krystal
@@ -144,7 +152,7 @@ pnpm install --prod
 ```
 
 If `corepack` is unavailable on the shared host, use `npm install`. The committed
-`package.json` is enough for npm to install `pg` and `stompit`.
+`package.json` is enough for npm to install `mysql2` and `stompit`.
 
 ## 5. Configure Environment Variables
 
@@ -154,7 +162,7 @@ Use the cPanel Node.js app environment variable UI if available, or create
 Minimum variables for the web app:
 
 ```dotenv
-DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+DATABASE_URL=mysql://cpaneluser_arkseyuser:PASSWORD@localhost:3306/cpaneluser_arksey
 PORT=3000
 TARGET_TIPLOC=ARKSEYL
 ```
@@ -188,8 +196,8 @@ https://your-domain.example/api/status
 If the API returns a database error, check:
 
 - `DATABASE_URL` is correct.
-- The external PostgreSQL host allows inbound connections from Krystal.
-- SSL mode is correct for the database provider.
+- The MySQL host, username, password, and database name are correct.
+- The database user has privileges on the database.
 - `schema.sql` has been applied.
 
 ## 7. Run The Ingestor Elsewhere
@@ -198,11 +206,11 @@ Run the ingestor on a VPS, home server, or other service that supports persisten
 background processes.
 
 Clone the same project on that host, install dependencies, create `.env`, and
-point `DATABASE_URL` to the same external PostgreSQL database used by the Krystal
+point `DATABASE_URL` to the same MySQL database used by the Krystal
 web app:
 
 ```dotenv
-DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+DATABASE_URL=mysql://cpaneluser_arkseyuser:PASSWORD@HOST:3306/cpaneluser_arksey
 OPENRAIL_USERNAME=your-network-rail-login@example.com
 OPENRAIL_PASSWORD=your-network-rail-password
 TARGET_TIPLOC=ARKSEYL
@@ -219,6 +227,12 @@ SCHEDULE_TYPE=CIF_ALL_FULL_DAILY
 SCHEDULE_DAY=toc-full
 SCHEDULE_IMPORT_ON_START=true
 ```
+
+If the ingestor is not running inside the same Krystal account, enable remote
+database access in cPanel for the ingestor host's public IP address. If Krystal
+does not allow remote MySQL access on your plan, run the ingestor on the same
+hosting account if persistent processes are supported, or use a separate MySQL
+provider that both Krystal and the ingestor host can reach.
 
 Run the initial timetable import:
 
@@ -305,9 +319,9 @@ sudo certbot --apache -d crossing.example.co.uk
 
 - **Page loads but shows no data:** run `npm run import:schedule` on the ingestor
   host and check that `v_crossing_state` returns a row.
-- **Database connection fails on Krystal:** confirm your database allows
-  connections from the Krystal server IP and that `sslmode=require` is present
-  when needed.
+- **Database connection fails on Krystal:** confirm the MySQL username, password,
+  host, database name, and user privileges. On cPanel, the database and username
+  usually include your account prefix.
 - **No live times:** the STOMP ingestor is not running, not authenticated, or
   cannot reach outbound TCP port `61618`.
 - **Only TIPLOC codes show for origin/destination:** run the daily SCHEDULE full

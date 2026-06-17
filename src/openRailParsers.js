@@ -130,7 +130,7 @@ export function scheduleDateTime(serviceDate, minutesAfterMidnight, dayOffset = 
   const hh = String(Math.floor(wholeMinutes / 60)).padStart(2, '0');
   const mm = String(wholeMinutes % 60).padStart(2, '0');
   const ss = String(seconds).padStart(2, '0');
-  return `${localDate} ${hh}:${mm}:${ss} Europe/London`;
+  return zonedLocalTimeToUtc(localDate, `${hh}:${mm}:${ss}`, 'Europe/London');
 }
 
 export function findTargetLocationTime(locations, targetTiploc, options = {}) {
@@ -204,4 +204,42 @@ export function getLocationPath(location) {
 
 function firstPresent(...values) {
   return values.find((value) => value !== null && value !== undefined && String(value).trim() !== '');
+}
+
+function zonedLocalTimeToUtc(localDate, localTime, timeZone) {
+  const [year, month, day] = localDate.split('-').map(Number);
+  const [hour, minute, second] = localTime.split(':').map(Number);
+  let utcMillis = Date.UTC(year, month - 1, day, hour, minute, second);
+
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    const offset = timeZoneOffsetMillis(new Date(utcMillis), timeZone);
+    utcMillis = Date.UTC(year, month - 1, day, hour, minute, second) - offset;
+  }
+
+  return new Date(utcMillis);
+}
+
+function timeZoneOffsetMillis(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+
+  const value = (type) => Number(parts.find((part) => part.type === type).value);
+  const asUtc = Date.UTC(
+    value('year'),
+    value('month') - 1,
+    value('day'),
+    value('hour'),
+    value('minute'),
+    value('second')
+  );
+
+  return asUtc - date.getTime();
 }

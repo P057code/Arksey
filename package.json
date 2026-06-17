@@ -11,7 +11,7 @@
     "check": "node --check src/index.js && node --check src/webServer.js && node --check src/config.js && node --check src/db.js && node --check src/openRailParsers.js && node --check src/scheduleImporter.js && node --check src/stompIngestor.js && node --check public/app.js"
   },
   "dependencies": {
-    "pg": "^8.13.1",
+    "mysql2": "^3.22.5",
     "stompit": "^1.0.0"
   }
 }
