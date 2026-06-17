@@ -1,5 +1,5 @@
 import process from 'node:process';
-import { config } from './config.js';
+import { assertOpenRailConfig, config } from './config.js';
 import { Database } from './db.js';
 import { ScheduleImporter } from './scheduleImporter.js';
 import { StompIngestor } from './stompIngestor.js';
@@ -15,6 +15,8 @@ const importer = new ScheduleImporter(db, config);
 const stomp = new StompIngestor(db, config);
 
 async function main() {
+  assertOpenRailConfig(config);
+
   if (args.has('--schedule-once')) {
     const stats = await importer.importDailySchedule();
     console.log('Schedule import completed:', stats);

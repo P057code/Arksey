@@ -58,6 +58,10 @@ export function getVstpTiploc(location) {
   );
 }
 
+export function getLocationTiploc(location, options = {}) {
+  return options.vstp ? getVstpTiploc(location) : location?.tiploc_code || null;
+}
+
 export function getVstpTime(location) {
   return firstPresent(
     location.scheduled_pass_time,
@@ -134,7 +138,7 @@ export function findTargetLocationTime(locations, targetTiploc, options = {}) {
   let dayOffset = 0;
 
   for (const location of locations) {
-    const tiploc = options.vstp ? getVstpTiploc(location) : location.tiploc_code;
+    const tiploc = getLocationTiploc(location, options);
     const rawTime = options.vstp ? getVstpTime(location) : getScheduleTime(location);
     const minutes = parseLocalRailTime(rawTime);
 
@@ -144,11 +148,58 @@ export function findTargetLocationTime(locations, targetTiploc, options = {}) {
     if (minutes !== null) previousMinutes = minutes;
 
     if (tiploc === targetTiploc && minutes !== null) {
-      return { rawTime, minutesAfterMidnight: minutes, dayOffset };
+      return {
+        rawTime,
+        minutesAfterMidnight: minutes,
+        dayOffset,
+        location,
+        directionInd: inferDirectionInd(location),
+        line: getLocationLine(location),
+        path: getLocationPath(location)
+      };
     }
   }
 
   return null;
+}
+
+export function getRouteEndpoints(locations, options = {}) {
+  const tiplocs = locations
+    .map((location) => getLocationTiploc(location, options))
+    .filter(Boolean);
+
+  return {
+    originTiploc: tiplocs[0] || null,
+    destinationTiploc: tiplocs[tiplocs.length - 1] || null
+  };
+}
+
+export function normaliseDirectionInd(value) {
+  if (!value) return null;
+  const cleaned = String(value).trim().toUpperCase();
+  if (!cleaned) return null;
+  if (cleaned === 'UP' || cleaned.startsWith('U')) return 'UP';
+  if (cleaned === 'DOWN' || cleaned.startsWith('D')) return 'DOWN';
+  return cleaned;
+}
+
+export function inferDirectionInd(location) {
+  return normaliseDirectionInd(
+    location.direction_ind ||
+      location.direction ||
+      location.line ||
+      location.CIF_line ||
+      location.path ||
+      location.CIF_path
+  );
+}
+
+export function getLocationLine(location) {
+  return firstPresent(location.line, location.CIF_line);
+}
+
+export function getLocationPath(location) {
+  return firstPresent(location.path, location.CIF_path);
 }
 
 function firstPresent(...values) {

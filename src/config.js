@@ -59,11 +59,14 @@ loadDotEnv();
 export function buildConfig() {
   return {
   databaseUrl: required('DATABASE_URL'),
+  web: {
+    port: integer('PORT', 3000)
+  },
   targetTiploc: process.env.TARGET_TIPLOC || 'ARKSEYL',
   targetStanox: process.env.TARGET_STANOX || '',
   openRail: {
-    username: required('OPENRAIL_USERNAME'),
-    password: required('OPENRAIL_PASSWORD'),
+    username: process.env.OPENRAIL_USERNAME || '',
+    password: process.env.OPENRAIL_PASSWORD || '',
     stompHost: process.env.OPENRAIL_STOMP_HOST || 'publicdatafeeds.networkrail.co.uk',
     stompPort: integer('OPENRAIL_STOMP_PORT', 61618),
     stompTopics: list('OPENRAIL_STOMP_TOPICS', ['TRAIN_MVT_ALL_TOC', 'VSTP_ALL']),
@@ -82,3 +85,12 @@ export function buildConfig() {
 }
 
 export const config = process.argv.includes('--help') ? null : buildConfig();
+
+export function assertOpenRailConfig(currentConfig) {
+  if (!currentConfig.openRail.username) {
+    throw new Error('Missing required environment variable OPENRAIL_USERNAME');
+  }
+  if (!currentConfig.openRail.password) {
+    throw new Error('Missing required environment variable OPENRAIL_PASSWORD');
+  }
+}

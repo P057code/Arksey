@@ -2,7 +2,9 @@ import stompit from 'stompit';
 import {
   extractHeadcodeFromTrustTrainId,
   findTargetLocationTime,
+  getRouteEndpoints,
   getVstpLocations,
+  normaliseDirectionInd,
   normaliseRecords,
   parseEpochMillis,
   parseJsonMessage,
@@ -161,6 +163,7 @@ export class StompIngestor {
       serviceDate,
       plannedAt: plannedAt || actualAt,
       actualAt: actualAt || plannedAt,
+      directionInd: normaliseDirectionInd(body.direction_ind),
       sourceMessageId
     });
   }
@@ -180,6 +183,8 @@ export class StompIngestor {
     const locations = getVstpLocations(schedule);
     const target = findTargetLocationTime(locations, this.config.targetTiploc, { vstp: true });
     if (!target) return;
+    const endpoints = getRouteEndpoints(locations, { vstp: true });
+    await this.ensureEndpointLocations(endpoints);
 
     const serviceDate = schedule.schedule_start_date;
     if (!serviceDate) return;
@@ -205,7 +210,9 @@ export class StompIngestor {
       serviceDate,
       headcode: segment?.signalling_id || segment?.CIF_headcode || null,
       trainServiceCode: segment?.CIF_train_service_code || null,
-      operatorCode: segment?.atoc_code || schedule.atoc_code || null
+      operatorCode: segment?.atoc_code || schedule.atoc_code || null,
+      originTiploc: endpoints.originTiploc,
+      destinationTiploc: endpoints.destinationTiploc
     });
 
     await this.db.upsertPassage({
@@ -216,10 +223,23 @@ export class StompIngestor {
         target.minutesAfterMidnight,
         target.dayOffset
       ),
+      directionInd: target.directionInd,
+      line: target.line,
+      path: target.path,
       sourceMessageId,
       status: isCancelled ? 'cancelled' : 'active',
       confidence: 'scheduled'
     });
+  }
+
+  async ensureEndpointLocations(endpoints) {
+    for (const tiplocCode of [endpoints.originTiploc, endpoints.destinationTiploc]) {
+      if (!tiplocCode) continue;
+      await this.db.upsertTiplocLocation({
+        tiplocCode,
+        displayName: tiplocCode
+      });
+    }
   }
 
   scheduleReconnect() {

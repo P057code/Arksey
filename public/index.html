@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Arksey Level Crossing</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="status-band" id="statusBand">
+        <div>
+          <p class="eyebrow">ARKSEYL</p>
+          <h1 id="crossingStatus">Loading crossing status</h1>
+          <p class="status-meta" id="statusMeta">Connecting to the feed</p>
+        </div>
+        <div class="signal-mark" aria-hidden="true">
+          <span></span>
+          <span></span>
+        </div>
+      </section>
+
+      <section class="train-grid" aria-label="Next trains by direction">
+        <article class="train-panel">
+          <div class="panel-header">
+            <p>Next train</p>
+            <h2 id="directionOneLabel">Direction one</h2>
+          </div>
+          <dl class="train-details" id="directionOneDetails"></dl>
+        </article>
+
+        <article class="train-panel">
+          <div class="panel-header">
+            <p>Next train</p>
+            <h2 id="directionTwoLabel">Direction two</h2>
+          </div>
+          <dl class="train-details" id="directionTwoDetails"></dl>
+        </article>
+      </section>
+
+      <section class="upcoming-strip" aria-label="Upcoming trains">
+        <div class="strip-header">
+          <h2>Upcoming at Arksey</h2>
+          <span id="lastUpdated">Waiting for update</span>
+        </div>
+        <div class="timeline" id="timeline"></div>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

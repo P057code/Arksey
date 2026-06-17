@@ -79,6 +79,12 @@ CREATE TABLE IF NOT EXISTS train_service (
   )
 );
 
+ALTER TABLE IF EXISTS train_service
+  ADD COLUMN IF NOT EXISTS trust_train_id text,
+  ADD COLUMN IF NOT EXISTS train_service_code text,
+  ADD COLUMN IF NOT EXISTS origin_tiploc varchar(7) REFERENCES tiploc_location (tiploc_code),
+  ADD COLUMN IF NOT EXISTS destination_tiploc varchar(7) REFERENCES tiploc_location (tiploc_code);
+
 DROP INDEX IF EXISTS train_service_identity_uid_idx;
 CREATE INDEX IF NOT EXISTS train_service_identity_uid_idx
   ON train_service (train_uid, service_date)
@@ -99,6 +105,9 @@ CREATE TABLE IF NOT EXISTS train_passage (
   scheduled_pass_at timestamptz NOT NULL,
   estimated_pass_at timestamptz,
   actual_pass_at timestamptz,
+  direction_ind text,
+  line text,
+  path text,
   source_message_id bigint REFERENCES rail_feed_message (id) ON DELETE SET NULL,
   import_run_id bigint REFERENCES rail_import_run (id) ON DELETE SET NULL,
   status text NOT NULL DEFAULT 'active',
@@ -113,6 +122,12 @@ CREATE TABLE IF NOT EXISTS train_passage (
   )
 );
 
+ALTER TABLE IF EXISTS train_passage
+  ADD COLUMN IF NOT EXISTS direction_ind text,
+  ADD COLUMN IF NOT EXISTS line text,
+  ADD COLUMN IF NOT EXISTS path text,
+  ADD COLUMN IF NOT EXISTS import_run_id bigint REFERENCES rail_import_run (id) ON DELETE SET NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS train_passage_unique_service_location_time_idx
   ON train_passage (service_id, tiploc_code, scheduled_pass_at)
   WHERE service_id IS NOT NULL;
@@ -120,6 +135,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS train_passage_unique_service_location_time_idx
 CREATE INDEX IF NOT EXISTS train_passage_tiploc_effective_time_idx
   ON train_passage (
     tiploc_code,
+    (coalesce(actual_pass_at, estimated_pass_at, scheduled_pass_at))
+  )
+  WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS train_passage_tiploc_direction_effective_time_idx
+  ON train_passage (
+    tiploc_code,
+    direction_ind,
     (coalesce(actual_pass_at, estimated_pass_at, scheduled_pass_at))
   )
   WHERE status = 'active';
@@ -355,6 +378,48 @@ SELECT
     'calculatedAt', calculated_at
   ) AS payload
 FROM v_crossing_state;
+
+CREATE OR REPLACE VIEW v_crossing_next_train AS
+SELECT
+  c.id AS crossing_id,
+  c.slug AS crossing_slug,
+  c.display_name AS crossing_name,
+  p.id AS train_passage_id,
+  p.tiploc_code,
+  coalesce(nullif(p.direction_ind, ''), 'UNKNOWN') AS direction_ind,
+  CASE coalesce(nullif(p.direction_ind, ''), 'UNKNOWN')
+    WHEN 'UP' THEN 'Up direction'
+    WHEN 'DOWN' THEN 'Down direction'
+    ELSE 'Unknown direction'
+  END AS direction_label,
+  s.headcode,
+  s.train_uid,
+  s.trust_train_id,
+  s.operator_code,
+  s.origin_tiploc,
+  coalesce(origin.display_name, s.origin_tiploc) AS origin_name,
+  s.destination_tiploc,
+  coalesce(destination.display_name, s.destination_tiploc) AS destination_name,
+  p.scheduled_pass_at,
+  p.estimated_pass_at,
+  p.actual_pass_at,
+  coalesce(p.actual_pass_at, p.estimated_pass_at, p.scheduled_pass_at) AS effective_pass_at,
+  CASE
+    WHEN p.actual_pass_at IS NOT NULL THEN 'actual'
+    WHEN p.estimated_pass_at IS NOT NULL THEN 'live'
+    ELSE 'timetable'
+  END AS time_source,
+  p.line,
+  p.path
+FROM train_passage p
+JOIN level_crossing c
+  ON c.tiploc_code = p.tiploc_code
+ AND c.is_active
+LEFT JOIN train_service s ON s.id = p.service_id
+LEFT JOIN tiploc_location origin ON origin.tiploc_code = s.origin_tiploc
+LEFT JOIN tiploc_location destination ON destination.tiploc_code = s.destination_tiploc
+WHERE p.status = 'active'
+  AND coalesce(p.actual_pass_at, p.estimated_pass_at, p.scheduled_pass_at) >= now() - interval '1 minute';
 
 INSERT INTO tiploc_location (tiploc_code, display_name)
 VALUES ('ARKSEYL', 'Arksey level crossing')

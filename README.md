@@ -111,6 +111,26 @@ Run the live service:
 pnpm start
 ```
 
+Run the web page:
+
+```powershell
+pnpm run web
+```
+
+Then open:
+
+```text
+http://localhost:3000
+```
+
+The page polls `/api/status` and displays:
+
+- current crossing state from `v_crossing_state`
+- next train in each available direction from `v_crossing_next_train`
+- timetabled passing time
+- live/actual passing time when VSTP or TRUST movement data has updated it
+- the upcoming ARKSEYL train list
+
 The service subscribes to:
 
 - `/topic/TRAIN_MVT_ALL_TOC` for TRUST movement updates.
@@ -125,6 +145,235 @@ value if you want sequential update-file processing.
 Train Movement messages use STANOX, not TIPLOC. The importer stores matching
 TIPLOC reference records from the SCHEDULE file, but if `ARKSEYL` does not get a
 STANOX that way, set `TARGET_STANOX` manually.
+
+## Live Webserver Setup
+
+The live deployment needs three pieces running:
+
+- PostgreSQL for the schema and live train/crossing state.
+- The ingestor process, `pnpm start`, for STOMP feeds and daily timetable import.
+- The web process, `pnpm run web`, for the public page and `/api/status`.
+
+These examples assume an Ubuntu/Debian server, Nginx, and systemd. Adapt paths
+and usernames if your host uses a different layout.
+
+### 1. Server Packages
+
+```bash
+sudo apt update
+sudo apt install -y git postgresql nginx
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo corepack enable
+sudo corepack prepare pnpm@latest --activate
+```
+
+Create a deployment user:
+
+```bash
+sudo adduser --system --group --home /opt/arksey arksey
+```
+
+Clone or copy the app:
+
+```bash
+sudo -u arksey git clone <your-repo-url> /opt/arksey/app
+cd /opt/arksey/app
+sudo -u arksey pnpm install --prod
+```
+
+### 2. PostgreSQL
+
+Create the database and user:
+
+```bash
+sudo -u postgres psql
+```
+
+```sql
+CREATE USER arksey WITH PASSWORD 'replace-with-a-strong-password';
+CREATE DATABASE arksey OWNER arksey;
+\q
+```
+
+Apply the schema:
+
+```bash
+cd /opt/arksey/app
+export DATABASE_URL='postgres://arksey:replace-with-a-strong-password@localhost:5432/arksey'
+psql "$DATABASE_URL" -f schema.sql
+```
+
+### 3. Environment File
+
+Create `/opt/arksey/app/.env` and keep it readable only by the deployment user:
+
+```bash
+sudo -u arksey cp /opt/arksey/app/.env.example /opt/arksey/app/.env
+sudo chmod 600 /opt/arksey/app/.env
+```
+
+Set these values:
+
+```dotenv
+DATABASE_URL=postgres://arksey:replace-with-a-strong-password@localhost:5432/arksey
+PORT=3000
+OPENRAIL_USERNAME=your-network-rail-login@example.com
+OPENRAIL_PASSWORD=your-network-rail-password
+TARGET_TIPLOC=ARKSEYL
+TARGET_STANOX=
+OPENRAIL_STOMP_HOST=publicdatafeeds.networkrail.co.uk
+OPENRAIL_STOMP_PORT=61618
+OPENRAIL_STOMP_TOPICS=TRAIN_MVT_ALL_TOC,VSTP_ALL
+OPENRAIL_STOMP_CLIENT_ID=arksey-level-crossing
+OPENRAIL_STOMP_DURABLE=true
+SCHEDULE_DAILY_TIME=06:15
+SCHEDULE_TIMEZONE=Europe/London
+SCHEDULE_LOOKAHEAD_DAYS=3
+SCHEDULE_TYPE=CIF_ALL_FULL_DAILY
+SCHEDULE_DAY=toc-full
+SCHEDULE_IMPORT_ON_START=true
+```
+
+Do not commit `.env`. It contains database and OpenRailData credentials.
+
+### 4. Initial Import And Connection Test
+
+Run the schedule import once:
+
+```bash
+cd /opt/arksey/app
+sudo -u arksey pnpm run import:schedule
+```
+
+Start the web process manually for a quick check:
+
+```bash
+sudo -u arksey pnpm run web
+```
+
+In another shell:
+
+```bash
+curl http://127.0.0.1:3000/api/status
+```
+
+Stop the manual process before installing systemd services.
+
+### 5. systemd Services
+
+Create `/etc/systemd/system/arksey-ingest.service`:
+
+```ini
+[Unit]
+Description=Arksey OpenRailData ingestor
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arksey
+Group=arksey
+WorkingDirectory=/opt/arksey/app
+EnvironmentFile=/opt/arksey/app/.env
+ExecStart=/usr/bin/pnpm start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Create `/etc/systemd/system/arksey-web.service`:
+
+```ini
+[Unit]
+Description=Arksey crossing web page
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arksey
+Group=arksey
+WorkingDirectory=/opt/arksey/app
+EnvironmentFile=/opt/arksey/app/.env
+ExecStart=/usr/bin/pnpm run web
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start both:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now arksey-ingest arksey-web
+sudo systemctl status arksey-ingest
+sudo systemctl status arksey-web
+```
+
+Useful logs:
+
+```bash
+sudo journalctl -u arksey-ingest -f
+sudo journalctl -u arksey-web -f
+```
+
+### 6. Nginx Reverse Proxy
+
+Create `/etc/nginx/sites-available/arksey`:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.example;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable it:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/arksey /etc/nginx/sites-enabled/arksey
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Add HTTPS with Certbot:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.example
+```
+
+Only ports `80` and `443` need to be public. Keep Postgres private to the
+server, and do not expose `PORT=3000` directly to the internet. The server also
+needs outbound access to `publicdatafeeds.networkrail.co.uk:61618` for STOMP and
+outbound HTTPS for the daily SCHEDULE download.
+
+### 7. Updating The Live Site
+
+```bash
+cd /opt/arksey/app
+sudo -u arksey git pull
+sudo -u arksey pnpm install --prod
+export DATABASE_URL='postgres://arksey:replace-with-a-strong-password@localhost:5432/arksey'
+psql "$DATABASE_URL" -f schema.sql
+sudo systemctl restart arksey-ingest arksey-web
+```
+
+Check the public page and `/api/status` after every deploy.
 
 Sample passage insert:
 

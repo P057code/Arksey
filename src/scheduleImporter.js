@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import {
   expandRunDates,
   findTargetLocationTime,
+  getRouteEndpoints,
   getScheduleLocations,
   scheduleDateTime,
   serviceDateFromInstant
@@ -96,6 +97,8 @@ export class ScheduleImporter {
     const locations = getScheduleLocations(schedule);
     const target = findTargetLocationTime(locations, this.config.targetTiploc);
     if (!target) return { matched: false, count: 0 };
+    const endpoints = getRouteEndpoints(locations);
+    await this.ensureEndpointLocations(endpoints);
 
     const runDates = expandRunDates(
       schedule,
@@ -134,7 +137,9 @@ export class ScheduleImporter {
         serviceDate,
         headcode: segment?.signalling_id || segment?.CIF_headcode || null,
         trainServiceCode: segment?.CIF_train_service_code || null,
-        operatorCode: schedule.atoc_code || null
+        operatorCode: schedule.atoc_code || null,
+        originTiploc: endpoints.originTiploc,
+        destinationTiploc: endpoints.destinationTiploc
       });
 
       await this.db.upsertPassage({
@@ -145,6 +150,9 @@ export class ScheduleImporter {
           target.minutesAfterMidnight,
           target.dayOffset
         ),
+        directionInd: target.directionInd,
+        line: target.line,
+        path: target.path,
         sourceMessageId,
         importRunId: runId,
         status: isCancelled ? 'cancelled' : 'active',
@@ -154,6 +162,16 @@ export class ScheduleImporter {
     }
 
     return { matched: true, count };
+  }
+
+  async ensureEndpointLocations(endpoints) {
+    for (const tiplocCode of [endpoints.originTiploc, endpoints.destinationTiploc]) {
+      if (!tiplocCode) continue;
+      await this.db.upsertTiplocLocation({
+        tiplocCode,
+        displayName: tiplocCode
+      });
+    }
   }
 
   async cleanupStalePassages(runId) {
