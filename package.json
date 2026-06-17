@@ -1,0 +1,16 @@
+{
+  "name": "arksey-openrail-ingestor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "stomp": "node src/index.js --stomp-only",
+    "import:schedule": "node src/index.js --schedule-once",
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/db.js && node --check src/openRailParsers.js && node --check src/scheduleImporter.js && node --check src/stompIngestor.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "stompit": "^1.0.0"
+  }
+}
