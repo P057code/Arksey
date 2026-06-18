@@ -16,6 +16,8 @@ The rule implemented in `schema.sql` is:
 
 - `schema.sql` creates the tables, indexes, seed data, and views.
 - `src/` contains the OpenRailData ingestion service.
+- `python-app/` contains the separate Flask/Python edition and its Krystal
+  deployment guide.
 - `v_crossing_page_payload` is the frontend-facing view. Query it by
   `crossing_slug = 'arksey'`.
 

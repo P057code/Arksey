@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Arksey Level Crossing</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <button
+      class="theme-toggle"
+      id="themeToggle"
+      type="button"
+      aria-label="Switch to dark mode"
+      title="Switch colour theme"
+    >
+      <span class="theme-icon theme-icon-light" aria-hidden="true">&#9788;</span>
+      <span class="theme-icon theme-icon-dark" aria-hidden="true">&#9790;</span>
+    </button>
+
+    <main class="app-shell">
+      <header class="site-header">
+        <div>
+          <p class="location-code">ARKSEYL</p>
+          <p class="location-name">Arksey Level Crossing</p>
+        </div>
+        <span class="feed-state" id="feedState">Connecting</span>
+      </header>
+
+      <section class="status-band" id="statusBand" aria-live="polite">
+        <div class="status-copy">
+          <p class="section-label">Road status</p>
+          <h1 id="crossingStatus">Loading status</h1>
+          <p class="status-meta" id="statusMeta">Waiting for railway data</p>
+        </div>
+        <div class="signal-mark" aria-hidden="true">
+          <span class="signal-red"></span>
+          <span class="signal-green"></span>
+        </div>
+      </section>
+
+      <section class="train-section" aria-labelledby="nextTrainsHeading">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Approaching traffic</p>
+            <h2 id="nextTrainsHeading">Next trains</h2>
+          </div>
+          <p id="lastUpdated">Waiting for update</p>
+        </div>
+
+        <div class="train-grid" aria-label="Next trains by direction">
+          <article class="train-panel">
+            <div class="panel-header">
+              <span class="direction-marker">01</span>
+              <h3 id="directionOneLabel">Direction one</h3>
+            </div>
+            <dl class="train-details" id="directionOneDetails"></dl>
+          </article>
+
+          <article class="train-panel">
+            <div class="panel-header">
+              <span class="direction-marker">02</span>
+              <h3 id="directionTwoLabel">Direction two</h3>
+            </div>
+            <dl class="train-details" id="directionTwoDetails"></dl>
+          </article>
+        </div>
+      </section>
+
+      <section class="upcoming-section" aria-labelledby="upcomingHeading">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">Timetable</p>
+            <h2 id="upcomingHeading">Upcoming at Arksey</h2>
+          </div>
+        </div>
+        <div class="timeline" id="timeline"></div>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}" type="module"></script>
+  </body>
+</html>
